@@ -4,7 +4,7 @@ from typing import Dict
 DISPLAY_ORDER = [
     "QQQ", "SPY", "DIA",
     "BTC", "ETH",
-    "纳指", "SPX", "道指",
+    "纳指", "SPX", "道指", "罗素2000",
     "恒科", "恒生", "上证", "日经",
 ]
 
@@ -12,6 +12,7 @@ MARKETS: Dict[str, Dict] = {
     "纳指": {"name": "纳指", "type": "index", "symbol": "^IXIC", "source": "yf", "calendar": "XNYS"},
     "SPX": {"name": "SPX", "type": "index", "symbol": "^GSPC", "source": "yf", "calendar": "XNYS"},
     "道指": {"name": "道指", "type": "index", "symbol": "^DJI", "source": "yf", "calendar": "XNYS"},
+    "罗素2000": {"name": "罗素2000", "type": "index", "symbol": "^RUT", "source": "yf", "calendar": "XNYS"},
     "日经": {"name": "日经", "type": "index", "ak_symbol": "日经225", "source": "ak", "calendar": "XTKS"},
     "恒科": {"name": "恒科", "type": "index", "ak_symbol": "HSTECH", "source": "ak_hk", "calendar": "XHKG"},
     "恒生": {"name": "恒生", "type": "index", "ak_symbol": "恒生指数", "source": "ak", "calendar": "XHKG"},

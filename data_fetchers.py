@@ -3,7 +3,6 @@ import yfinance as yf
 import pandas as pd
 import ccxt
 import akshare as ak
-import requests
 from datetime import datetime, date, time
 import pytz
 from typing import Optional, Tuple
@@ -17,7 +16,7 @@ def fetch_yf_history(symbol: str) -> Optional[pd.DataFrame]:
         if len(df) < 2:
             return None
 
-        # === 恢复原始调试日志 ===
+        # === 调试日志（保留） ===
         print(f"→ yf {symbol} 数据最后三行:")
         print(df.tail(3))
         print("列名:", list(df.columns))
@@ -36,7 +35,7 @@ def fetch_stock_1m_high_low_time(symbol: str, target_date: date) -> Tuple[str, s
         df = ticker.history(period="7d", interval="1m", prepost=False)
         if df.empty:
             return None
-        df.index = df.index.tz_convert("US/Eastern")
+        # 关键修复5：移除多余的tz_convert，yfinance已正确处理时区
         df = df[(df.index.time >= time(9, 30)) & (df.index.time <= time(16, 0))]
         df = df.reset_index().rename(columns={"Datetime": "time"})
         day_df = df[pd.to_datetime(df["time"]).dt.date == target_date]
@@ -55,7 +54,7 @@ def fetch_ak_index(ak_symbol: str, source_type: str) -> Optional[pd.DataFrame]:
         else:
             df_raw = ak.index_global_hist_em(symbol=ak_symbol)
 
-        # === 恢复原始调试日志 ===
+        # === 调试日志（保留） ===
         print(f"→ ak {ak_symbol} ({'港股指数' if source_type == 'ak_hk' else '全球指数'}) 数据最后三行:")
         print(df_raw.tail(3) if not df_raw.empty else "（空数据）")
         print("列名:", list(df_raw.columns) if not df_raw.empty else "empty")
@@ -125,91 +124,3 @@ def fetch_crypto_high_low_time(symbol: str, target_start_ms: int, name: str) -> 
         return (high_t, low_t)
     result = retry_fetch(_inner, success_msg=f"{name} 分钟极值时间获取成功")
     return result if result else ("", "")
-
-def fetch_matching_fng(crypto_report_date: date) -> Tuple[int, str]:
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get("https://api.alternative.me/fng/?limit=3", headers=headers, timeout=10)
-        response.raise_for_status()
-        data = response.json()["data"]
-        if len(data) < 2:
-            raise ValueError("数据不足")
-
-        yesterday_value = int(data[1]["value"])
-        yesterday_classification_eng = data[1]["value_classification"]
-        yesterday_timestamp = int(data[1]["timestamp"])
-        yesterday_api_date = datetime.utcfromtimestamp(yesterday_timestamp).date()
-
-        if yesterday_api_date == crypto_report_date:
-            classification_map = {
-                "Extreme Fear": "极端恐惧",
-                "Fear": "恐惧",
-                "Neutral": "中性",
-                "Greed": "贪婪",
-                "Extreme Greed": "极端贪婪",
-            }
-            classification = classification_map.get(yesterday_classification_eng, yesterday_classification_eng)
-            print(f"→ 恐贪指数获取成功：{yesterday_value} ({classification})")
-            return yesterday_value, classification
-        else:
-            return 0, "未知（日期不匹配）"
-    except Exception as e:
-        print(f"→ 获取恐贪指数失败: {e}")
-        return 0, "未知"
-
-def fetch_matching_cnn_fng(us_report_date: date) -> Tuple[int, str]:
-    url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Referer': 'https://www.cnn.com/markets/fear-and-greed',
-            'Origin': 'https://www.cnn.com',
-            'Connection': 'keep-alive',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-site',
-        }
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-
-        if not response.text.strip().startswith('{'):
-            print(f"→ CNN API 返回非JSON内容（可能是被拦截）：{response.text[:200]}")
-            return 0, "未知（接口被拦截）"
-
-        data = response.json()
-        historical_data = data.get("fear_and_greed_historical", {}).get("data", [])
-        if not historical_data:
-            raise ValueError("无历史数据")
-
-        rating_map = {
-            "extreme fear": "极端恐惧",
-            "fear": "恐惧",
-            "neutral": "中性",
-            "greed": "贪婪",
-            "extreme greed": "极端贪婪",
-        }
-
-        for entry in historical_data:
-            entry_date = datetime.fromtimestamp(entry["x"] / 1000).date()
-            if entry_date == us_report_date:
-                value = round(entry["y"])
-                eng_rating = entry["rating"]
-                classification = rating_map.get(eng_rating, "未知")
-                print(f"→ 股市恐贪指数获取成功：{value} ({classification})")
-                return value, classification
-
-        print(f"→ 未找到匹配日期 {us_report_date} 的恐贪指数")
-        return 0, "未知（无匹配日期）"
-
-    except requests.exceptions.RequestException as e:
-        print(f"→ 获取股市恐贪指数网络失败: {e}")
-        return 0, "未知（网络错误）"
-    except ValueError as e:
-        print(f"→ 获取股市恐贪指数解析失败: {e}")
-        return 0, "未知（解析错误）"
-    except Exception as e:
-        print(f"→ 获取股市恐贪指数未知错误: {type(e).__name__}: {e}")
-        return 0, "未知"

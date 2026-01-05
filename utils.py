@@ -25,33 +25,40 @@ def get_local_now(calendar_name: Optional[str]) -> pd.Timestamp:
 
 def get_latest_completed_session(calendar_name: Optional[str], source: str) -> Optional[date]:
     if not calendar_name or calendar_name not in CALENDARS:
+        # 无日历时保守返回前一天
         return (pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=1)).date()
 
     cal = CALENDARS[calendar_name]
-    local_now = get_local_now(calendar_name)
-    now_utc_aware = local_now.tz_convert("UTC")
-    now_utc = now_utc_aware.tz_localize(None)
+    local_now = get_local_now(calendar_name)                    # tz-aware，本地时区
+    now_utc_aware = local_now.tz_convert("UTC")                 # tz-aware UTC
+    now_utc_naive = now_utc_aware.tz_localize(None)             # tz-naive UTC，用于与 sessions 比较
 
-    sessions = cal.sessions
-    idx = sessions.searchsorted(now_utc, side="right") - 1
+    sessions = cal.sessions  # tz-naive UTC DatetimeIndex
+
+    # 使用 tz-naive 的时间进行 searchsorted
+    idx = sessions.searchsorted(now_utc_naive, side="right") - 1
     if idx < 0:
         return None
 
     session = sessions[idx]
     schedule = cal.schedule.loc[session]
-    close_time = schedule.get("market_close") or schedule.get("close")
 
+    # close_time 是本地时区（可能 naive 或 aware）
+    close_time = schedule.get("market_close") or schedule.get("close")
     if close_time.tzinfo is None:
         close_time = close_time.tz_localize(CALENDAR_TIMEZONES.get(calendar_name, "UTC"))
 
     close_time_utc = close_time.tz_convert("UTC")
     buffer = pd.Timedelta(minutes=CLOSE_BUFFER_MINUTES.get(source, 30))
 
+    # 判断是否已过收盘 + buffer（使用 aware 时间比较）
     if now_utc_aware >= close_time_utc + buffer:
-        return session.date()
+        return session.date()  # 当日已完成
 
+    # 未完成，回退到前一个交易日
     prev = cal.previous_session(session)
     return prev.date() if prev else None
+
 
 def retry_fetch(func, *args, success_msg: str = "获取成功", max_retries: int = 5, **kwargs):
     delays = [2, 1, 3, 4, 5, 2, 4]
@@ -60,7 +67,7 @@ def retry_fetch(func, *args, success_msg: str = "获取成功", max_retries: int
             result = func(*args, **kwargs)
             if result is not None and (
                 (isinstance(result, pd.DataFrame) and len(result) >= 2) or
-                isinstance(result, tuple)
+                (isinstance(result, tuple) and all(item is not None for item in result))
             ):
                 print(f"→ {success_msg}（第 {attempt} 次尝试）")
                 return result
